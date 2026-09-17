@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.idea/
+
+parking_logs.db
+captures/
+dohienthiluu_anh/
+camera_index_0.jpg
+live_preview.jpg
+

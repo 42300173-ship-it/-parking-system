@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Quản Lý Bãi Giữ Xe Thông Minh</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=2">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="dark-theme">
+    <!-- Overlay Login Modal if not authenticated -->
+    <div id="login-modal" class="modal-backdrop">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-icon"><i class="fa-solid fa-shield-halved"></i></div>
+                <h2>Đăng Nhập Quản Trị</h2>
+                <p>Hệ thống giám sát bãi giữ xe thông minh</p>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label><i class="fa-regular fa-user"></i> Tài khoản</label>
+                    <input type="text" id="login-user" value="0788725499" required placeholder="Nhập số điện thoại/tên">
+                </div>
+                <div class="form-group">
+                    <label><i class="fa-solid fa-key"></i> Mật khẩu</label>
+                    <input type="password" id="login-pass" value="kiendepzai123" required placeholder="Nhập mật khẩu">
+                </div>
+                <div id="login-error" class="error-text"></div>
+                <button type="submit" class="btn btn-primary btn-block">
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i> Đăng Nhập
+                </button>
+                <div class="forgot-wrapper">
+                    <a href="#" id="toggle-forgot">Quên mật khẩu / Dùng mã PIN?</a>
+                </div>
+                <div id="forgot-section" class="hidden">
+                    <div class="form-group">
+                        <label><i class="fa-solid fa-lock"></i> Mã PIN khôi phục</label>
+                        <input type="password" id="login-pin" placeholder="Nhập mã PIN (260405)">
+                    </div>
+                    <button type="button" id="btn-submit-pin" class="btn btn-secondary btn-block">
+                        <i class="fa-solid fa-unlock-keyhole"></i> Mở khóa bằng PIN
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="app-layout">
+        <!-- Top Navigation Bar -->
+        <header class="app-header">
+            <div class="header-brand">
+                <div class="brand-logo">
+                    <i class="fa-solid fa-square-parking"></i>
+                </div>
+                <div class="brand-info">
+                    <h1>SMART PARKING SYSTEM</h1>
+                    <span class="brand-subtitle">Hệ Thống Giữ Xe Tự Động • Nhận Diện RFID & Biển Số</span>
+                </div>
+            </div>
+
+            <div class="header-stats">
+                <div class="stat-pill">
+                    <span class="pill-label"><i class="fa-solid fa-car"></i> Sức Chứa:</span>
+                    <span class="pill-value" id="occupancy-stat">0 / 3</span>
+                </div>
+                <div class="stat-pill revenue-pill">
+                    <span class="pill-label"><i class="fa-solid fa-coins"></i> Doanh Thu:</span>
+                    <span class="pill-value highlight-green" id="header-revenue">0 ₫</span>
+                </div>
+                <div class="stat-pill clock-pill">
+                    <span class="pill-label"><i class="fa-regular fa-clock"></i></span>
+                    <span class="pill-value" id="live-clock">--:--:--</span>
+                </div>
+                <button id="btn-logout" class="btn btn-outline-danger btn-sm" title="Đăng xuất">
+                    <i class="fa-solid fa-power-off"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Grid -->
+        <main class="main-content">
+            <!-- Alert Banner for Pending Exits -->
+            <div id="pending-exits-container" class="pending-section hidden">
+                <div class="section-title text-warning">
+                    <i class="fa-solid fa-triangle-exclamation fa-beat-fade"></i>
+                    <span>Yêu Cầu Xe Vào / Ra Đang Chờ Xác Nhận</span>
+                </div>
+                <div id="pending-cards-grid" class="pending-grid"></div>
+            </div>
+
+            <!-- Dashboard Grid: Left (Camera & Capture) + Right (Slots) -->
+            <div class="dashboard-grid">
+                <!-- Left Column: Camera & Capture Preview -->
+                <div class="card camera-card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i class="fa-solid fa-video"></i> Camera Cổng Vào / Ra
+                        </div>
+                        <div class="camera-status-badge">
+                            <span class="pulse-dot"></span> LIVE STREAM
+                        </div>
+                    </div>
+
+                    <div class="video-container">
+                        <img id="live-feed" src="/video_feed" alt="Camera Stream" onerror="this.src='/static/img/no_signal.svg'">
+                        <div class="stream-overlay-info">
+                            <span id="fps-counter"><i class="fa-solid fa-bolt"></i> 30 FPS</span>
+                            <span><i class="fa-solid fa-barcode"></i> Tự Động Chụp Khi Quét Thẻ</span>
+                        </div>
+                    </div>
+
+                    <!-- Manual Controls -->
+                    <div class="camera-actions">
+                        <button id="btn-manual-capture" class="btn btn-primary" title="Bấm chụp ảnh & nhận diện ngay mà không cần quẹt thẻ">
+                            <i class="fa-solid fa-camera"></i> Chụp Thử Nghiệm
+                        </button>
+                        <div class="manual-plate-input">
+                            <input type="text" id="manual-plate-text" placeholder="Gõ biển số thủ công (VD: 51A-123.45)">
+                            <button id="btn-assign-manual" class="btn btn-secondary" title="Gán biển số vào vị trí trống">
+                                <i class="fa-solid fa-arrow-down-to-square"></i> Gán Xe
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Latest Capture Result Banner -->
+                    <div id="latest-scan-banner" class="latest-scan-box hidden">
+                        <div class="scan-thumb-wrap">
+                            <img id="latest-scan-img" src="" alt="Ảnh biển số">
+                        </div>
+                        <div class="scan-details">
+                            <div class="scan-tag" id="scan-action-tag">XE VÀO</div>
+                            <div class="scan-plate" id="scan-plate-display">51A-123.45</div>
+                            <div class="scan-meta">
+                                <span><i class="fa-solid fa-id-card"></i> <span id="scan-rfid-display">--</span></span>
+                                <span><i class="fa-solid fa-location-dot"></i> <span id="scan-slot-display">C1</span></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: 3 Parking Slots -->
+                <div class="card slots-card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i class="fa-solid fa-cubes-stacked"></i> Trạng Thái Vị Trí Đỗ Xe (IR Sensor)
+                        </div>
+                        <button id="btn-reset-ir" class="btn btn-outline-secondary btn-sm" title="Đặt lại 3 ô cảm biến về Trống (Xanh)">
+                            <i class="fa-solid fa-arrows-rotate"></i> Reset 3 Ô IR
+                        </button>
+                    </div>
+
+                    <div class="slots-container" id="slots-list">
+                        <!-- Slot C1 -->
+                        <div class="slot-card slot-empty" id="slot-card-C1">
+                            <div class="slot-header">
+                                <span class="slot-name">VỊ TRÍ C1</span>
+                                <span class="slot-badge" id="badge-C1">TRỐNG</span>
+                            </div>
+                            <div class="slot-body">
+                                <div class="slot-plate-wrapper">
+                                    <span class="slot-plate-text" id="plate-C1">--</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-regular fa-clock"></i> Giờ vào:</span>
+                                    <span class="val" id="timein-C1">--:--:--</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-solid fa-stopwatch"></i> Thời gian đỗ:</span>
+                                    <span class="val highlight-timer" id="duration-C1">--</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-solid fa-money-bill-wave"></i> Phí tạm tính:</span>
+                                    <span class="val highlight-green" id="fee-C1">0 ₫</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-solid fa-id-badge"></i> Thẻ RFID:</span>
+                                    <span class="val" id="rfid-C1">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Slot C2 -->
+                        <div class="slot-card slot-empty" id="slot-card-C2">
+                            <div class="slot-header">
+                                <span class="slot-name">VỊ TRÍ C2</span>
+                                <span class="slot-badge" id="badge-C2">TRỐNG</span>
+                            </div>
+                            <div class="slot-body">
+                                <div class="slot-plate-wrapper">
+                                    <span class="slot-plate-text" id="plate-C2">--</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-regular fa-clock"></i> Giờ vào:</span>
+                                    <span class="val" id="timein-C2">--:--:--</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-solid fa-stopwatch"></i> Thời gian đỗ:</span>
+                                    <span class="val highlight-timer" id="duration-C2">--</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-solid fa-money-bill-wave"></i> Phí tạm tính:</span>
+                                    <span class="val highlight-green" id="fee-C2">0 ₫</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-solid fa-id-badge"></i> Thẻ RFID:</span>
+                                    <span class="val" id="rfid-C2">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Slot C3 -->
+                        <div class="slot-card slot-empty" id="slot-card-C3">
+                            <div class="slot-header">
+                                <span class="slot-name">VỊ TRÍ C3</span>
+                                <span class="slot-badge" id="badge-C3">TRỐNG</span>
+                            </div>
+                            <div class="slot-body">
+                                <div class="slot-plate-wrapper">
+                                    <span class="slot-plate-text" id="plate-C3">--</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-regular fa-clock"></i> Giờ vào:</span>
+                                    <span class="val" id="timein-C3">--:--:--</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-solid fa-stopwatch"></i> Thời gian đỗ:</span>
+                                    <span class="val highlight-timer" id="duration-C3">--</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-solid fa-money-bill-wave"></i> Phí tạm tính:</span>
+                                    <span class="val highlight-green" id="fee-C3">0 ₫</span>
+                                </div>
+                                <div class="slot-meta-row">
+                                    <span><i class="fa-solid fa-id-badge"></i> Thẻ RFID:</span>
+                                    <span class="val" id="rfid-C3">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Section: History Logs & Configuration Tabs -->
+            <div class="card history-card">
+                <div class="tabs-nav">
+                    <button class="tab-btn active" data-tab="tab-in-logs">
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i> Lịch Sử Xe Vào
+                    </button>
+                    <button class="tab-btn" data-tab="tab-out-logs">
+                        <i class="fa-solid fa-arrow-right-from-bracket"></i> Lịch Sử Xe Ra
+                    </button>
+                    <button class="tab-btn" data-tab="tab-settings">
+                        <i class="fa-solid fa-gears"></i> Cấu Hình Hệ Thống
+                    </button>
+                </div>
+
+                <!-- Tab 1: Xe Vào -->
+                <div class="tab-content active" id="tab-in-logs">
+                    <div class="table-toolbar">
+                        <div class="search-input">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="search-in-logs" placeholder="Tìm kiếm biển số, mã RFID...">
+                        </div>
+                        <button class="btn btn-outline-danger btn-sm" onclick="clearEntireDatabase()">
+                            <i class="fa-solid fa-trash-can"></i> Xóa Toàn Bộ Database
+                        </button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>Thời Gian Vào</th>
+                                    <th>Vị Trí Đỗ</th>
+                                    <th>Biển Số Xe</th>
+                                    <th>Mã Thẻ RFID</th>
+                                    <th>Ảnh Chụp</th>
+                                    <th>Thao Tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-in-logs">
+                                <tr><td colspan="7" class="text-center">Đang tải dữ liệu...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Xe Ra -->
+                <div class="tab-content" id="tab-out-logs">
+                    <div class="table-toolbar">
+                        <div class="search-input">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="search-out-logs" placeholder="Tìm kiếm biển số, mã RFID...">
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>Vị Trí</th>
+                                    <th>Biển Số Xe</th>
+                                    <th>Mã Thẻ RFID</th>
+                                    <th>Thời Gian Vào</th>
+                                    <th>Thời Gian Ra</th>
+                                    <th>Phí Thu (VND)</th>
+                                    <th>Thao Tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-out-logs">
+                                <tr><td colspan="8" class="text-center">Đang tải dữ liệu...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Cài đặt -->
+                <div class="tab-content" id="tab-settings">
+                    <div class="settings-panel">
+                        <div class="settings-card">
+                            <h3><i class="fa-solid fa-database"></i> Thông Tin Cơ Sở Dữ Liệu</h3>
+                            <div class="setting-item">
+                                <span>Hệ quản trị đang dùng:</span>
+                                <span class="badge badge-accent" id="db-type-badge">SQLITE</span>
+                            </div>
+                            <p class="text-muted">
+                                Hệ thống hỗ trợ chuyển đổi giữa SQLite và MySQL. Để chuyển sang MySQL, bạn chỉ cần sửa file <code>.env</code> thành <code>DB_TYPE=mysql</code> và nhập file <code>schema.sql</code> vào phpMyAdmin.
+                            </p>
+                        </div>
+                        <div class="settings-card">
+                            <h3><i class="fa-solid fa-sliders"></i> Thông Số Vận Hành</h3>
+                            <div class="setting-item">
+                                <span>Đơn giá gửi xe:</span>
+                                <span>1,000 VND / phút</span>
+                            </div>
+                            <div class="setting-item">
+                                <span>Cổng kết nối phần cứng (ESP32):</span>
+                                <span>POST http://[IP]:5000/api/rfid_scan</span>
+                            </div>
+                            <div class="setting-item">
+                                <span>Cảm biến hồng ngoại IR:</span>
+                                <span>POST http://[IP]:5000/api/update_slot</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/static/js/app.js?v=3"></script>
+</body>
+</html>
