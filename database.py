@@ -250,6 +250,52 @@ class DatabaseManager:
                         `image_path` VARCHAR(255) DEFAULT ''
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
                 """)
+        cursor.execute("DROP VIEW IF EXISTS `logs_daily_report`")
+        cursor.execute("DROP VIEW IF EXISTS `exit_logs_daily_report`")
+        cursor.execute("""
+                    CREATE OR REPLACE VIEW `daily_report` AS
+                    WITH RECURSIVE
+                    events AS (
+                        SELECT STR_TO_DATE(`timestamp`, '%d/%m/%Y %H:%i:%s') AS `event_date`,
+                               0 AS `fee`
+                        FROM `logs`
+                        UNION ALL
+                        SELECT STR_TO_DATE(`time_in`, '%d/%m/%Y %H:%i:%s'),
+                               `fee`
+                        FROM `exit_logs`
+                    ),
+                    bounds AS (
+                        SELECT MIN(DATE(`event_date`)) AS `first_day`,
+                               MAX(DATE(`event_date`)) AS `last_day`
+                        FROM events
+                    ),
+                    calendar AS (
+                        SELECT `first_day` AS `day`
+                        FROM bounds
+                        WHERE `first_day` IS NOT NULL
+                        UNION ALL
+                        SELECT DATE_ADD(`day`, INTERVAL 1 DAY)
+                        FROM calendar
+                        JOIN bounds ON 1 = 1
+                        WHERE `day` < `last_day`
+                    ),
+                    totals AS (
+                        SELECT DATE(`event_date`) AS `day`,
+                               COUNT(*) AS `event_count`,
+                               COALESCE(SUM(`fee`), 0) AS `total_fee`
+                        FROM events
+                        GROUP BY DATE(`event_date`)
+                    )
+                    SELECT DATE_FORMAT(calendar.`day`, '%d/%m/%Y') AS `ngay`,
+                           CASE WHEN COALESCE(totals.`event_count`, 0) = 0
+                                THEN 'KHONG CO DU LIEU'
+                                ELSE 'TONG'
+                           END AS `thong_bao`,
+                           COALESCE(totals.`event_count`, 0) AS `tong_luot_ra_vao`,
+                           COALESCE(totals.`total_fee`, 0) AS `tong_doanh_thu`
+                    FROM calendar
+                    LEFT JOIN totals ON totals.`day` = calendar.`day`
+                """)
         for slot in ["C1", "C2", "C3"]:
           cursor.execute(
               "INSERT IGNORE INTO `slot_status` (`slot_name`, `status`)"
@@ -276,6 +322,21 @@ class DatabaseManager:
           f" {param_mark}",
           (status, slot),
       )
+      if db_type == "sqlite":
+        conn.commit()
+      conn.close()
+
+  def reset_slots(self):
+    """Reset trạng thái hiện tại và các yêu cầu chờ, không xóa lịch sử."""
+    with _db_lock:
+      conn, db_type = self.get_connection()
+      cursor = conn.cursor()
+      cursor.execute("""
+          UPDATE slot_status SET status = 'E', time_in = '', time_out = '',
+          last_fee = 0, current_plate = '', current_rfid = '', image_path = ''
+      """)
+      cursor.execute("DELETE FROM pending_entry")
+      cursor.execute("DELETE FROM pending_exit")
       if db_type == "sqlite":
         conn.commit()
       conn.close()
@@ -327,6 +388,25 @@ class DatabaseManager:
       return None
     return row["slot_name"] if db_type == "mysql" else row[0]
 
+  def find_slot_by_plate(self, plate_number):
+    """Tìm vị trí đang giữ xe theo biển số, không phụ thuộc cảm biến IR."""
+    if not plate_number:
+      return None
+    with _db_lock:
+      conn, db_type = self.get_connection()
+      cursor = conn.cursor()
+      p = "%s" if db_type == "mysql" else "?"
+      cursor.execute(
+          f"SELECT slot_name FROM slot_status WHERE current_plate = {p} "
+          f"AND current_rfid <> {p}",
+          (plate_number, ""),
+      )
+      row = cursor.fetchone()
+      conn.close()
+    if not row:
+      return None
+    return row["slot_name"] if db_type == "mysql" else row[0]
+
   def rfid_entry(self, slot, plate_number, rfid_uid, image_path=""):
     """Lưu thông tin xe VÀO bãi đỗ."""
     now_full = now_full_str()
@@ -344,7 +424,7 @@ class DatabaseManager:
 
       # Cập nhật slot_status
       cursor.execute(
-          f"""UPDATE slot_status SET time_in = {p}, current_plate = {p},
+          f"""UPDATE slot_status SET status = 'F', time_in = {p}, current_plate = {p},
              current_rfid = {p}, image_path = {p} WHERE slot_name = {p}""",
           (now_full, plate_number, rfid_uid, image_path, slot),
       )
@@ -566,7 +646,7 @@ class DatabaseManager:
 
       # Cập nhật slot_status (giải phóng thẻ & biển số)
       cursor.execute(
-          f"""UPDATE slot_status SET time_out = {p}, last_fee = {p},
+          f"""UPDATE slot_status SET status = 'E', time_out = {p}, last_fee = {p},
              current_plate = '', current_rfid = '', image_path = '' WHERE slot_name = {p}""",
           (now_full, fee, slot),
       )
@@ -654,7 +734,7 @@ class DatabaseManager:
 
     return {"total_revenue": total_rev, "slots": slots}
 
-  def get_all_logs(self):
+  def get_all_logs(self, date_filter=None):
     """Lấy danh sách lịch sử xe VÀO."""
     with _db_lock:
       conn, db_type = self.get_connection()
@@ -669,7 +749,7 @@ class DatabaseManager:
     result = []
     if db_type == "mysql":
       for r in rows:
-        result.append(r)
+        result.append(dict(r))
     else:
       for r in rows:
         result.append({
@@ -680,9 +760,11 @@ class DatabaseManager:
             "rfid_uid": r[4],
             "image_path": r[5] or "",
         })
+    if date_filter:
+      result = [r for r in result if (r["timestamp"] or "").startswith(date_filter)]
     return result
 
-  def get_all_exit_logs(self):
+  def get_all_exit_logs(self, date_filter=None):
     """Lấy danh sách lịch sử xe RA."""
     with _db_lock:
       conn, db_type = self.get_connection()
@@ -697,7 +779,7 @@ class DatabaseManager:
     result = []
     if db_type == "mysql":
       for r in rows:
-        result.append(r)
+        result.append(dict(r))
     else:
       for r in rows:
         result.append({
@@ -710,7 +792,19 @@ class DatabaseManager:
             "fee": r[6],
             "image_path": r[7] if len(r) > 7 else "",
         })
+    if date_filter:
+      result = [
+          r for r in result
+          if (r["time_in"] or "").startswith(date_filter)
+      ]
     return result
+
+  def get_daily_revenue(self, date_filter):
+    """Tổng phí xe ra theo ngày vào/đang xem."""
+    if not date_filter:
+      return 0
+    rows = self.get_all_exit_logs(date_filter)
+    return sum((row.get("fee") or 0) for row in rows)
 
   def delete_log_by_id(self, log_id):
     with _db_lock:

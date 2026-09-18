@@ -173,7 +173,10 @@ def rfid_scan():
 @app.route("/api/status", methods=["GET"])
 def get_system_status():
     """Lấy toàn bộ trạng thái hệ thống: doanh thu, 3 vị trí đỗ, danh sách chờ xe ra."""
+    selected_date = request.args.get("date") or datetime.now().strftime("%d/%m/%Y")
     data = db.get_slots_status()
+    data["total_revenue"] = db.get_daily_revenue(selected_date)
+    data["selected_date"] = selected_date
     pending_exits = db.get_pending_exits()
     pending_entries = db.get_pending_entries()
     data["pending_exits"] = pending_exits
@@ -248,20 +251,13 @@ def cancel_entry():
 def manual_capture():
     """Bấm nút chụp thử nghiệm trên giao diện Web mà không cần quẹt thẻ."""
     global latest_scan_event
-    slot = db.find_first_empty_slot()
-    if slot is None:
-        return jsonify({"status": "error", "message": "Bãi đã đầy, không còn vị trí trống"}), 400
-
     rel_img_path, frame_bgr = camera.capture_snapshot(prefix="manual")
     detected_plate, is_valid = ocr.recognize_plate(frame_bgr)
-    simulated_uid = f"MANUAL_{datetime.now().strftime('%H%M%S')}"
-
-    db.rfid_entry(slot, plate_number=detected_plate, rfid_uid=simulated_uid, image_path=rel_img_path)
 
     latest_scan_event = {
-        "action": "XE VÀO (CHỤP TAY)",
-        "rfid": simulated_uid,
-        "slot": slot,
+        "action": "CHỤP THỬ NGHIỆM",
+        "rfid": "",
+        "slot": "",
         "plate": detected_plate,
         "image_url": f"/{rel_img_path}" if rel_img_path else "",
         "timestamp": time.time()
@@ -269,9 +265,7 @@ def manual_capture():
 
     return jsonify({
         "status": "ok",
-        "slot": slot,
         "plate": detected_plate,
-        "rfid": simulated_uid,
         "image_url": f"/{rel_img_path}" if rel_img_path else ""
     }), 200
 
@@ -285,42 +279,64 @@ def manual_assign():
     if not plate:
         return jsonify({"status": "error", "message": "Chưa nhập biển số"}), 400
 
+    occupied_slot = db.find_slot_by_plate(plate)
+    if occupied_slot is not None:
+        rel_img_path, _ = camera.capture_snapshot(prefix="manual_exit")
+        db.request_exit_pending(occupied_slot, image_path=rel_img_path)
+        latest_scan_event = {
+            "action": "XE RA (GÁN TAY)",
+            "rfid": "",
+            "slot": occupied_slot,
+            "plate": plate,
+            "image_url": f"/{rel_img_path}" if rel_img_path else "",
+            "timestamp": time.time()
+        }
+        return jsonify({
+            "status": "exit_pending",
+            "slot": occupied_slot,
+            "plate": plate,
+            "message": "Da tao yeu cau cho xe ra xac nhan"
+        }), 200
+
     slot = db.find_first_empty_slot()
     if slot is None:
         return jsonify({"status": "error", "message": "Bãi đã đầy"}), 400
 
     simulated_uid = f"TAY_{datetime.now().strftime('%H%M%S')}"
-    db.rfid_entry(slot, plate_number=plate, rfid_uid=simulated_uid)
+    db.request_entry_pending(slot, plate_number=plate, rfid_uid=simulated_uid)
 
     latest_scan_event = {
-        "action": "XE VÀO (GÁN TAY)",
+        "action": "XE VÀO (GÁN TAY - CHỜ DUYỆT)",
         "rfid": simulated_uid,
         "slot": slot,
         "plate": plate,
         "timestamp": time.time()
     }
 
-    return jsonify({"status": "ok", "slot": slot, "plate": plate}), 200
+    return jsonify({"status": "entry_pending", "slot": slot, "plate": plate}), 200
 
 
 @app.route("/api/reset_ir", methods=["POST"])
 def reset_ir():
-    """Reset 3 ô cảm biến IR về Trống (Xanh)."""
-    for s in ["C1", "C2", "C3"]:
-        db.ir_update_slot(s, "E")
-    return jsonify({"status": "ok", "message": "Da reset 3 o IR"}), 200
+    """Reset trạng thái 3 ô và xóa thông tin xe hiện tại, không xóa lịch sử."""
+    db.reset_slots()
+    global latest_scan_event
+    latest_scan_event = {}
+    return jsonify({"status": "ok", "message": "Da reset trang thai cac o"}), 200
 
 
 @app.route("/api/logs/in", methods=["GET"])
 def get_logs_in():
     """Lấy danh sách lịch sử xe vào."""
-    return jsonify({"status": "ok", "logs": db.get_all_logs()}), 200
+    date_filter = request.args.get("date") or datetime.now().strftime("%d/%m/%Y")
+    return jsonify({"status": "ok", "date": date_filter, "logs": db.get_all_logs(date_filter)}), 200
 
 
 @app.route("/api/logs/out", methods=["GET"])
 def get_logs_out():
     """Lấy danh sách lịch sử xe ra."""
-    return jsonify({"status": "ok", "logs": db.get_all_exit_logs()}), 200
+    date_filter = request.args.get("date") or datetime.now().strftime("%d/%m/%Y")
+    return jsonify({"status": "ok", "date": date_filter, "logs": db.get_all_exit_logs(date_filter)}), 200
 
 
 @app.route("/api/logs/in/<int:log_id>", methods=["DELETE"])

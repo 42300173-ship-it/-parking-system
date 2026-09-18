@@ -148,8 +148,8 @@
                         <div class="card-title">
                             <i class="fa-solid fa-cubes-stacked"></i> Trạng Thái Vị Trí Đỗ Xe (IR Sensor)
                         </div>
-                        <button id="btn-reset-ir" class="btn btn-outline-secondary btn-sm" title="Đặt lại 3 ô cảm biến về Trống (Xanh)">
-                            <i class="fa-solid fa-arrows-rotate"></i> Reset 3 Ô IR
+                        <button id="btn-reset-ir" class="btn btn-outline-secondary btn-sm" title="Đặt lại trạng thái và thông tin 3 ô">
+                            <i class="fa-solid fa-arrows-rotate"></i> Reset
                         </button>
                     </div>
 
@@ -261,6 +261,9 @@
                 <!-- Tab 1: Xe Vào -->
                 <div class="tab-content active" id="tab-in-logs">
                     <div class="table-toolbar">
+                        <label class="date-filter">Ngày xem:
+                            <input type="date" id="logs-date">
+                        </label>
                         <div class="search-input">
                             <i class="fa-solid fa-magnifying-glass"></i>
                             <input type="text" id="search-in-logs" placeholder="Tìm kiếm biển số, mã RFID...">
@@ -292,6 +295,9 @@
                 <!-- Tab 2: Xe Ra -->
                 <div class="tab-content" id="tab-out-logs">
                     <div class="table-toolbar">
+                        <label class="date-filter">Ngày xem:
+                            <input type="date" id="logs-date-out">
+                        </label>
                         <div class="search-input">
                             <i class="fa-solid fa-magnifying-glass"></i>
                             <input type="text" id="search-out-logs" placeholder="Tìm kiếm biển số, mã RFID...">

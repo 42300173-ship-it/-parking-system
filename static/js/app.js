@@ -36,6 +36,20 @@ const tbodyInLogs = document.getElementById("tbody-in-logs");
 const tbodyOutLogs = document.getElementById("tbody-out-logs");
 const searchInLogs = document.getElementById("search-in-logs");
 const searchOutLogs = document.getElementById("search-out-logs");
+const logsDate = document.getElementById("logs-date");
+const logsDateOut = document.getElementById("logs-date-out");
+
+function apiDateValue(input) {
+    if (!input || !input.value) return "";
+    const [year, month, day] = input.value.split("-");
+    return `${day}/${month}/${year}`;
+}
+
+function setTodayDate(input) {
+    if (input) input.value = new Date().toISOString().slice(0, 10);
+}
+setTodayDate(logsDate);
+setTodayDate(logsDateOut);
 
 // -------------------------------------------------------------
 // Auth Handling
@@ -168,7 +182,8 @@ function formatVND(num) {
 // -------------------------------------------------------------
 async function fetchStatus() {
     try {
-        const res = await fetch("/api/status");
+        const selectedDate = apiDateValue(logsDate);
+        const res = await fetch(`/api/status?date=${encodeURIComponent(selectedDate)}`);
         if (!res.ok) return;
         const data = await res.json();
 
@@ -428,7 +443,7 @@ if (btnManualCapture) {
             const res = await fetch("/api/manual_capture", { method: "POST" });
             const data = await res.json();
             if (data.status === "ok") {
-                showToast(`Nhận diện: ${data.plate} -> Vị trí ${data.slot}`, "success");
+                showToast(`Kết quả chụp thử: ${data.plate}`, "success");
                 showLatestScanBanner(data);
                 fetchStatus();
                 fetchLogs();
@@ -458,8 +473,16 @@ if (btnAssignManual) {
                 body: JSON.stringify({ plate })
             });
             const data = await res.json();
-            if (data.status === "ok") {
-                showToast(`Đã gán biển ${plate} vào vị trí ${data.slot}`, "success");
+            if (data.status === "entry_pending") {
+                showToast(`Đã tạo yêu cầu xe vào ${plate}, hãy xác nhận`, "success");
+                manualPlateText.value = "";
+                fetchStatus();
+            } else if (data.status === "exit_pending") {
+                showToast(`Đã tạo yêu cầu xe ra ${plate}, hãy xác nhận`, "success");
+                manualPlateText.value = "";
+                fetchStatus();
+            } else if (data.status === "ok") {
+                showToast(`Đã gán biển ${plate}`, "success");
                 manualPlateText.value = "";
                 fetchStatus();
                 fetchLogs();
@@ -476,8 +499,9 @@ if (btnResetIr) {
     btnResetIr.addEventListener("click", async () => {
         try {
             await fetch("/api/reset_ir", { method: "POST" });
-            showToast("Đã reset 3 ô IR về Trống (Xanh)", "success");
+            showToast("Đã reset trạng thái và thông tin 3 ô", "success");
             fetchStatus();
+            showLatestScanBanner({ action: "", plate: "", rfid: "", slot: "" });
         } catch (err) {
             showToast("Lỗi khi reset IR", "error");
         }
@@ -486,6 +510,10 @@ if (btnResetIr) {
 
 function showLatestScanBanner(info) {
     if (!latestScanBanner) return;
+    if (!info || (!info.action && !info.plate && !info.rfid && !info.slot)) {
+        latestScanBanner.classList.add("hidden");
+        return;
+    }
     latestScanBanner.classList.remove("hidden");
     latestScanBanner.classList.toggle(
         "latest-scan-error", info.action === "XE VÀO (QUÉT LẠI)"
@@ -504,9 +532,11 @@ function showLatestScanBanner(info) {
 // -------------------------------------------------------------
 async function fetchLogs() {
     try {
+        const selectedDateIn = apiDateValue(logsDate);
+        const selectedDateOut = apiDateValue(logsDateOut);
         const [resIn, resOut] = await Promise.all([
-            fetch("/api/logs/in"),
-            fetch("/api/logs/out")
+            fetch(`/api/logs/in?date=${encodeURIComponent(selectedDateIn)}`),
+            fetch(`/api/logs/out?date=${encodeURIComponent(selectedDateOut)}`)
         ]);
         const inData = await resIn.json();
         const outData = await resOut.json();
@@ -516,6 +546,12 @@ async function fetchLogs() {
     } catch (err) {
         console.error("Lỗi tải lịch sử:", err);
     }
+
+    if (logsDate) logsDate.addEventListener("change", () => {
+        fetchStatus();
+        fetchLogs();
+    });
+    if (logsDateOut) logsDateOut.addEventListener("change", fetchLogs);
 }
 
 function renderInLogs(logs) {
